@@ -7,10 +7,6 @@ const Utils = (() => {
     const dateFormatter = new Intl.DateTimeFormat(undefined, {
         year: 'numeric', month: 'short', day: '2-digit'
     });
-    const dateTimeFormatter = new Intl.DateTimeFormat(undefined, {
-        dateStyle: 'medium',
-        timeStyle: 'short'
-    });
 
     const toISODate = (date = new Date()) => {
         const d = (date instanceof Date) ? date : new Date(date);
@@ -178,7 +174,6 @@ const Utils = (() => {
         formatCurrency,
         parseNumber,
         formatDate: (date) => date ? dateFormatter.format(new Date(date)) : '',
-        formatDateTime: (date) => date ? dateTimeFormatter.format(new Date(date)) : '',
         toISODate,
         diffInDays,
         addDays,

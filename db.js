@@ -1,8 +1,7 @@
 const DB = (() => {
     const DB_NAME = 'finance_tool';
-    const DB_VERSION = 2;
+    const DB_VERSION = 1;
     const STORE_NAMES = ['items', 'stockMovements', 'purchases', 'sales', 'expenses', 'ledgerEntries', 'parties', 'banks', 'attachments'];
-    const META_STORE = 'meta';
     let dbPromise = null;
 
     const openDB = () => {
@@ -72,9 +71,6 @@ const DB = (() => {
             store.createIndex('linkedId', 'linkedId');
             store.createIndex('module', 'module');
             store.createIndex('createdAt', 'createdAt');
-        }
-        if (!db.objectStoreNames.contains(META_STORE)) {
-            db.createObjectStore(META_STORE);
         }
     };
 
@@ -149,8 +145,7 @@ const DB = (() => {
                 type: 'opening',
                 quantity: item.openingStock,
                 cost: item.cost,
-                date: Utils.toISODate(item.openingDate),
-                referenceId: item.id
+                date: Utils.toISODate(item.openingDate)
             });
         });
         purchases.forEach(purchase => {
@@ -160,8 +155,7 @@ const DB = (() => {
                 type: 'purchase',
                 quantity: purchase.quantity,
                 cost: purchase.rate,
-                date: purchase.date,
-                referenceId: purchase.id
+                date: purchase.date
             });
         });
         sales.forEach(sale => {
@@ -172,8 +166,7 @@ const DB = (() => {
                 type: 'sale',
                 quantity: -sale.quantity,
                 cost: item?.cost || sale.rate,
-                date: sale.date,
-                referenceId: sale.id
+                date: sale.date
             });
         });
         return movements;
@@ -274,39 +267,13 @@ const DB = (() => {
 
     const listAllData = async () => {
         const db = await openDB();
-        const stores = await Promise.all(STORE_NAMES.map(store => new Promise((resolve, reject) => {
+        return Promise.all(STORE_NAMES.map(store => new Promise((resolve, reject) => {
             const tx = db.transaction(store, 'readonly');
             const request = tx.objectStore(store).getAll();
             request.onsuccess = () => resolve({ store, data: request.result });
             request.onerror = () => reject(request.error);
-        })));
-        return stores.reduce((acc, { store, data }) => ({ ...acc, [store]: data }), {});
+        }))).then(entries => entries.reduce((acc, { store, data }) => ({ ...acc, [store]: data }), {}));
     };
-
-    const exportSnapshot = async () => {
-        const data = await listAllData();
-        return { version: DB_VERSION, exportedAt: new Date().toISOString(), data };
-    };
-
-    const importSnapshot = async (snapshot) => {
-        if (!snapshot || typeof snapshot !== 'object') throw new Error('Invalid snapshot');
-        const payload = snapshot.data ? snapshot : { data: snapshot };
-        const db = await openDB();
-        const tx = db.transaction(STORE_NAMES, 'readwrite');
-        STORE_NAMES.forEach(store => {
-            const objectStore = tx.objectStore(store);
-            objectStore.clear();
-            Utils.ensureArray(payload.data?.[store]).forEach(item => objectStore.put(item));
-        });
-        return new Promise((resolve, reject) => {
-            tx.oncomplete = () => resolve(payload.exportedAt || new Date().toISOString());
-            tx.onerror = () => reject(tx.error);
-        });
-    };
-
-    const setMeta = async (key, value) => withStore(META_STORE, 'readwrite', (store) => store.put(value, key));
-    const getMeta = async (key) => withStore(META_STORE, 'readonly', (store) => store.get(key));
-    const removeMeta = async (key) => withStore(META_STORE, 'readwrite', (store) => store.delete(key));
 
     const deriveKey = async (passphrase, salt) => {
         const enc = new TextEncoder();
@@ -321,12 +288,12 @@ const DB = (() => {
 
     const backup = async (passphrase) => {
         if (!passphrase) throw new Error('Passphrase is required');
-        const { data, exportedAt } = await exportSnapshot();
+        const data = await listAllData();
         const encoder = new TextEncoder();
         const salt = crypto.getRandomValues(new Uint8Array(16));
         const iv = crypto.getRandomValues(new Uint8Array(12));
         const key = await deriveKey(passphrase, salt);
-        const encoded = encoder.encode(JSON.stringify({ exportedAt, data }));
+        const encoded = encoder.encode(JSON.stringify({ exportedAt: new Date().toISOString(), data }));
         const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, encoded);
         const payload = {
             version: DB_VERSION,
@@ -347,7 +314,17 @@ const DB = (() => {
         const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, cipher);
         const decoder = new TextDecoder();
         const { data } = JSON.parse(decoder.decode(decrypted));
-        await importSnapshot({ data });
+        const db = await openDB();
+        const tx = db.transaction(STORE_NAMES, 'readwrite');
+        STORE_NAMES.forEach(store => {
+            const objectStore = tx.objectStore(store);
+            objectStore.clear();
+            Utils.ensureArray(data[store]).forEach(item => objectStore.put(item));
+        });
+        return new Promise((resolve, reject) => {
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+        });
     };
 
     const api = {
@@ -357,12 +334,7 @@ const DB = (() => {
         add,
         remove,
         backup,
-        restore,
-        exportSnapshot,
-        importSnapshot,
-        setMeta,
-        getMeta,
-        removeMeta
+        restore
     };
 
     window.DB = api;

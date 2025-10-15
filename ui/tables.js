@@ -3,25 +3,13 @@ const TablesUI = (() => {
 
     const render = (tableId, data, renderRow, options = {}) => {
         const pageSize = options.pageSize || 10;
-        const state = tableState[tableId] || { page: 1, query: '', selectedId: null };
+        const state = tableState[tableId] || { page: 1, query: '' };
         const filtered = data.filter(item => renderRow(item).toLowerCase().includes(state.query.toLowerCase()));
         const { items, page, pages } = Utils.paginate(filtered, state.page, pageSize);
         tableState[tableId] = { ...state, page };
         const tbody = document.querySelector(`#${tableId} tbody`);
         if (!tbody) return;
         tbody.innerHTML = items.map(item => renderRow(item, true)).join('');
-        if (options.getId) {
-            const rows = Array.from(tbody.querySelectorAll('tr'));
-            rows.forEach((row, index) => {
-                const recordId = options.getId(items[index]);
-                row.dataset.recordId = recordId;
-                row.dataset.module = options.module || tableId;
-                row.tabIndex = 0;
-                if (tableState[tableId].selectedId === recordId) {
-                    row.classList.add('table-row-selected');
-                }
-            });
-        }
         renderPagination(tableId, pages);
     };
 
@@ -62,21 +50,9 @@ const TablesUI = (() => {
     };
 
     const setRenderer = (tableId, renderer) => {
-        tableState[tableId] = tableState[tableId] || { page: 1, query: '', selectedId: null };
+        tableState[tableId] = tableState[tableId] || { page: 1, query: '' };
         tableState[tableId].onRender = renderer;
     };
 
-    const setSelection = (tableId, recordId) => {
-        tableState[tableId] = tableState[tableId] || { page: 1, query: '', selectedId: null };
-        tableState[tableId].selectedId = recordId;
-        tableState[tableId].onRender?.();
-    };
-
-    const clearSelection = (tableId) => {
-        if (!tableState[tableId]) return;
-        tableState[tableId].selectedId = null;
-        tableState[tableId].onRender?.();
-    };
-
-    return { render, bindSearch, setRenderer, setSelection, clearSelection };
+    return { render, bindSearch, setRenderer };
 })();

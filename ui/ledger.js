@@ -18,9 +18,8 @@ const LedgerUI = (() => {
                 <td>${entry.type}</td>
                 <td>${debit}</td>
                 <td>${credit}</td>
-                <td><button class="btn secondary" data-edit-record="cash" data-id="${entry.id}">Edit</button></td>
             </tr>`;
-        }, { getId: (entry) => entry.id, module: 'cash' });
+        });
         TablesUI.setRenderer(tableId, renderer);
         renderer();
     };
@@ -28,19 +27,23 @@ const LedgerUI = (() => {
     const renderLoanTable = (state) => {
         const tableId = 'loanTable';
         const entries = state.ledgerEntries.filter(entry => ['loans', 'capital'].includes(entry.accountId));
-        const renderer = () => TablesUI.render(tableId, entries, (entry, asHtml) => {
-            const party = state.parties.find(p => p.id === entry.partyId)?.name || entry.description?.split(' for ')[1] || '-';
-            if (!asHtml) return `${entry.accountId} ${party} ${entry.date}`;
-            const balance = entry.type === 'credit' ? entry.amount : -entry.amount;
-            return `<tr>
+        const aggregated = entries.reduce((acc, entry) => {
+            const key = entry.description;
+            acc[key] = acc[key] || { description: entry.description, date: entry.date, type: entry.accountId, amount: 0 };
+            acc[key].amount += entry.amount;
+            return acc;
+        }, {});
+        const rows = Object.values(aggregated).map(entry => ({
+            search: `${entry.description} ${entry.type}`,
+            html: `<tr>
                 <td>${Utils.formatDate(entry.date)}</td>
-                <td>${party}</td>
-                <td>${entry.accountId === 'loans' ? 'Loan' : 'Capital'}</td>
+                <td>${entry.description}</td>
+                <td>${entry.type === 'loans' ? 'Loan' : 'Capital'}</td>
                 <td>${Utils.formatCurrency(entry.amount, state.settings.currency)}</td>
-                <td>${Utils.formatCurrency(balance, state.settings.currency)}</td>
-                <td><button class="btn secondary" data-edit-record="loan" data-id="${entry.id}">Edit</button></td>
-            </tr>`;
-        }, { getId: (entry) => entry.id, module: 'loan' });
+                <td>${Utils.formatCurrency(entry.amount, state.settings.currency)}</td>
+            </tr>`
+        }));
+        const renderer = () => TablesUI.render(tableId, rows, (row, asHtml) => asHtml ? row.html : row.search);
         TablesUI.setRenderer(tableId, renderer);
         renderer();
     };

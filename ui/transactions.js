@@ -35,9 +35,9 @@ const TransactionsUI = (() => {
                 <td>${item.category}</td>
                 <td>${quantity.toFixed(2)} ${reorderFlag}</td>
                 <td>${Utils.formatCurrency(value, state.settings.currency)}</td>
-                <td><button class="btn secondary" data-edit-record="inventory" data-id="${item.id}">Edit</button></td>
+                <td><button class="btn secondary" data-edit-item="${item.id}">Edit</button></td>
             </tr>`;
-        }, { getId: (item) => item.id, module: 'inventory' });
+        });
         TablesUI.setRenderer(tableId, renderer);
         renderer();
     };
@@ -57,9 +57,8 @@ const TransactionsUI = (() => {
                 <td>${Utils.formatCurrency(purchase.total, state.settings.currency)}</td>
                 <td>${Utils.formatCurrency(purchase.paid || 0, state.settings.currency)}</td>
                 <td><span class="${dueClass}">${Utils.formatCurrency(purchase.balance, state.settings.currency)}</span></td>
-                <td><button class="btn secondary" data-edit-record="purchase" data-id="${purchase.id}">Edit</button></td>
             </tr>`;
-        }, { getId: (purchase) => purchase.id, module: 'purchase' });
+        });
         TablesUI.setRenderer(tableId, renderer);
         renderer();
     };
@@ -79,9 +78,8 @@ const TransactionsUI = (() => {
                 <td>${Utils.formatCurrency(sale.total, state.settings.currency)}</td>
                 <td>${Utils.formatCurrency(sale.received || 0, state.settings.currency)}</td>
                 <td><span class="${dueClass}">${Utils.formatCurrency(sale.balance, state.settings.currency)}</span></td>
-                <td><button class="btn secondary" data-edit-record="sale" data-id="${sale.id}">Edit</button></td>
             </tr>`;
-        }, { getId: (sale) => sale.id, module: 'sale' });
+        });
         TablesUI.setRenderer(tableId, renderer);
         renderer();
     };
@@ -97,9 +95,8 @@ const TransactionsUI = (() => {
                 <td>${Utils.formatCurrency(expense.amount, state.settings.currency)}</td>
                 <td>${vendor}</td>
                 <td>${expense.recurring ? '<span class="badge">Recurring</span>' : '-'}</td>
-                <td><button class="btn secondary" data-edit-record="expense" data-id="${expense.id}">Edit</button></td>
             </tr>`;
-        }, { getId: (expense) => expense.id, module: 'expense' });
+        });
         TablesUI.setRenderer(tableId, renderer);
         renderer();
     };

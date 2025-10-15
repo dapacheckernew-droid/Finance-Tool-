@@ -12,451 +12,20 @@ const App = (() => {
         settings: { currency: 'USD', orgName: 'Finance Tool', fiscalStart: Utils.toISODate(new Date()).slice(0, 7) }
     };
 
-    const autoBackupState = {
-        enabled: true,
-        fileHandle: null,
-        lastRun: null
-    };
-    let autoBackupTimer = null;
-
-    const moduleConfigs = {
-        inventory: { formId: 'inventoryForm', tableId: 'inventoryTable', store: 'items', route: 'inventory', updateLabel: 'Update Item' },
-        purchase: { formId: 'purchaseForm', tableId: 'purchaseTable', store: 'purchases', route: 'purchases', updateLabel: 'Update Purchase' },
-        sale: { formId: 'salesForm', tableId: 'salesTable', store: 'sales', route: 'sales', updateLabel: 'Update Sale' },
-        expense: { formId: 'expenseForm', tableId: 'expenseTable', store: 'expenses', route: 'expenses', updateLabel: 'Update Expense' },
-        cash: { formId: 'cashForm', tableId: 'cashTable', store: 'ledgerEntries', route: 'cashbank', updateLabel: 'Update Entry', filter: (entry) => state.banks.some(bank => bank.id === entry.accountId) || entry.accountId === 'cash' },
-        loan: { formId: 'loanForm', tableId: 'loanTable', store: 'ledgerEntries', route: 'loans', updateLabel: 'Update Loan/Capital', filter: (entry) => ['loans', 'capital'].includes(entry.accountId) }
-    };
-
     const routes = [
         'dashboard', 'inventory', 'purchases', 'sales', 'expenses', 'cashbank', 'loans', 'receivables', 'payables', 'reports', 'settings', 'attachments'
     ];
 
-    const upsertStateRecord = (collectionName, record) => {
-        const list = state[collectionName];
-        if (!Array.isArray(list)) return;
-        const index = list.findIndex(item => item.id === record.id);
-        if (index >= 0) {
-            list[index] = record;
-        } else {
-            list.push(record);
-        }
-    };
-
-    const setDefaultFormDates = (scope = document) => {
-        const today = Utils.toISODate();
-        scope.querySelectorAll('input[type="date"][data-default-today]').forEach(input => {
-            if (!input.value) input.value = today;
-        });
-    };
-
-    const resetFormWithDefaults = (module) => {
-        const config = moduleConfigs[module];
-        if (!config) return;
-        const form = document.getElementById(config.formId);
-        if (!form) return;
-        form.reset();
-        setDefaultFormDates(form);
-        const hidden = form.querySelector('[name="recordId"]');
-        if (hidden) hidden.value = '';
-        const submit = form.querySelector('[type="submit"]');
-        if (submit && form.dataset.defaultSubmitText) {
-            submit.textContent = form.dataset.defaultSubmitText;
-        }
-        if (module === 'expense') {
-            form.querySelector('.recurring-template')?.classList.add('hidden');
-            const recurring = form.querySelector('input[name="recurring"]');
-            if (recurring) recurring.checked = false;
-        }
-    };
-
-    const finishFormSubmission = (module) => {
-        resetFormWithDefaults(module);
-        const config = moduleConfigs[module];
-        if (config) {
-            TablesUI.clearSelection(config.tableId);
-        }
-    };
-
-    const ensureSelectOption = (select, value, label) => {
-        if (!select || value == null) return;
-        const exists = Array.from(select.options).some(option => option.value === value);
-        if (!exists) {
-            const option = new Option(label ?? value, value);
-            select.appendChild(option);
-        }
-    };
-
-    const populateFormForModule = (module, record) => {
-        const config = moduleConfigs[module];
-        if (!config) return;
-        const form = document.getElementById(config.formId);
-        if (!form) return;
-        const submit = form.querySelector('[type="submit"]');
-        if (submit) {
-            if (!form.dataset.defaultSubmitText) form.dataset.defaultSubmitText = submit.textContent;
-            submit.textContent = config.updateLabel;
-        }
-        const hidden = form.querySelector('[name="recordId"]');
-        if (hidden) hidden.value = record.id;
-        switch (module) {
-            case 'inventory':
-                form.name.value = record.name || '';
-                form.sku.value = record.sku || '';
-                form.category.value = record.category || '';
-                form.cost.value = record.cost ?? '';
-                form.stock.value = record.openingStock ?? '';
-                form.reorder.value = record.reorder ?? '';
-                break;
-            case 'purchase':
-                ensureSelectOption(form.party, record.partyId, state.parties.find(p => p.id === record.partyId)?.name || '');
-                ensureSelectOption(form.item, record.itemId, state.items.find(i => i.id === record.itemId)?.name || '');
-                form.party.value = record.partyId || '';
-                form.item.value = record.itemId || '';
-                form.quantity.value = record.quantity;
-                form.rate.value = record.rate;
-                form.payment.value = record.paid || 0;
-                form.dueDate.value = record.dueDate || '';
-                form.date.value = record.date || Utils.toISODate();
-                break;
-            case 'sale':
-                ensureSelectOption(form.party, record.partyId, state.parties.find(p => p.id === record.partyId)?.name || '');
-                ensureSelectOption(form.item, record.itemId, state.items.find(i => i.id === record.itemId)?.name || '');
-                form.party.value = record.partyId || '';
-                form.item.value = record.itemId || '';
-                form.quantity.value = record.quantity;
-                form.rate.value = record.rate;
-                form.payment.value = record.received || 0;
-                form.dueDate.value = record.dueDate || '';
-                form.date.value = record.date || Utils.toISODate();
-                break;
-            case 'expense':
-                ensureSelectOption(form.party, record.partyId, state.parties.find(p => p.id === record.partyId)?.name || '');
-                form.party.value = record.partyId || '';
-                form.category.value = record.category || '';
-                form.amount.value = record.amount ?? '';
-                form.date.value = record.date || Utils.toISODate();
-                form.recurring.checked = !!record.recurring;
-                const template = form.querySelector('.recurring-template');
-                if (template) template.classList.toggle('hidden', !record.recurring);
-                const frequency = form.querySelector('select[name="frequency"]');
-                if (frequency && record.frequency) frequency.value = record.frequency;
-                break;
-            case 'cash':
-                ensureSelectOption(form.bank, record.accountId, record.accountId === 'cash' ? 'Cash' : state.banks.find(b => b.id === record.accountId)?.name || record.accountId);
-                form.bank.value = record.accountId || '';
-                form.type.value = record.type || 'deposit';
-                form.amount.value = record.amount ?? '';
-                form.date.value = record.date || Utils.toISODate();
-                form.description.value = record.description || '';
-                break;
-            case 'loan':
-                ensureSelectOption(form.party, record.partyId, state.parties.find(p => p.id === record.partyId)?.name || '');
-                form.party.value = record.partyId || '';
-                form.type.value = record.accountId === 'loans' ? 'loan' : 'capital';
-                form.amount.value = record.amount ?? '';
-                form.date.value = record.date || Utils.toISODate();
-                form.interest.value = record.interest ?? '';
-                break;
-            default:
-                break;
-        }
-    };
-
-    const ensureFileHandlePermission = async (handle) => {
-        if (!handle || typeof handle.queryPermission !== 'function') return false;
-        try {
-            const current = await handle.queryPermission({ mode: 'readwrite' });
-            if (current === 'granted') return true;
-            if (current === 'prompt') {
-                const granted = await handle.requestPermission({ mode: 'readwrite' });
-                return granted === 'granted';
-            }
-        } catch (error) {
-            console.warn('File handle permission error', error);
-        }
-        return false;
-    };
-
-    const updateAutoBackupIndicators = () => {
-        const toggle = document.getElementById('autoBackupToggle');
-        if (toggle) toggle.checked = !!autoBackupState.enabled;
-        const status = document.getElementById('autoBackupStatus');
-        if (status) {
-            status.textContent = autoBackupState.lastRun ? Utils.formatDateTime(autoBackupState.lastRun) : 'Never';
-        }
-    };
-
-    const saveAutoBackupConfig = async () => {
-        await DB.setMeta('autoBackupConfig', {
-            enabled: autoBackupState.enabled,
-            lastRun: autoBackupState.lastRun,
-            fileHandle: autoBackupState.fileHandle
-        });
-        updateAutoBackupIndicators();
-    };
-
-    const scheduleAutoBackup = (force = false) => {
-        if (!autoBackupState.enabled) return;
-        clearTimeout(autoBackupTimer);
-        const runBackup = async () => {
-            try {
-                const snapshot = await DB.exportSnapshot();
-                localStorage.setItem('finance-auto-backup', JSON.stringify(snapshot));
-                autoBackupState.lastRun = snapshot.exportedAt;
-                await saveAutoBackupConfig();
-                if (autoBackupState.fileHandle && await ensureFileHandlePermission(autoBackupState.fileHandle)) {
-                    await persistSnapshotToFile(autoBackupState.fileHandle, snapshot);
-                }
-            } catch (error) {
-                console.error('Auto-backup failed', error);
-                Utils.showToast('Auto-backup failed', 'error');
-            }
-        };
-        autoBackupTimer = setTimeout(runBackup, force ? 0 : 1500);
-    };
-
-    const persistSnapshotToFile = async (handle, snapshot) => {
-        if (!handle || typeof handle.createWritable !== 'function') return;
-        const writable = await handle.createWritable();
-        await writable.write(JSON.stringify(snapshot, null, 2));
-        await writable.close();
-    };
-
-    const requestPersistentStorage = async () => {
-        if (navigator.storage?.persist) {
-            try {
-                await navigator.storage.persist();
-            } catch (error) {
-                console.warn('Persistent storage request failed', error);
-            }
-        }
-    };
-
-    const loadAutoBackupConfig = async () => {
-        try {
-            const config = await DB.getMeta('autoBackupConfig');
-            if (config) {
-                autoBackupState.enabled = config.enabled !== false;
-                autoBackupState.lastRun = config.lastRun || null;
-                if (config.fileHandle && await ensureFileHandlePermission(config.fileHandle)) {
-                    autoBackupState.fileHandle = config.fileHandle;
-                }
-            }
-        } catch (error) {
-            console.warn('Unable to load auto-backup config', error);
-        }
-        updateAutoBackupIndicators();
-    };
-
-    const maybeRestoreFromAutoBackup = async () => {
-        if (!autoBackupState.enabled) return;
-        try {
-            const snapshotRaw = localStorage.getItem('finance-auto-backup');
-            if (!snapshotRaw) return;
-            const snapshot = JSON.parse(snapshotRaw);
-            const existingItems = await DB.getAll('items');
-            if (!existingItems.length) {
-                const restoredAt = await DB.importSnapshot(snapshot);
-                autoBackupState.lastRun = restoredAt;
-                await saveAutoBackupConfig();
-            }
-        } catch (error) {
-            console.warn('Auto-restore skipped', error);
-        }
-    };
-
-    const bindAutoBackupControls = () => {
-        const toggle = document.getElementById('autoBackupToggle');
-        const downloadBtn = document.getElementById('btnDownloadAutoBackup');
-        const linkBtn = document.getElementById('btnLinkAutoBackupFile');
-        const importBtn = document.getElementById('btnImportAutoBackup');
-        const importInput = document.getElementById('autoBackupImport');
-        if (toggle) {
-            toggle.addEventListener('change', async () => {
-                autoBackupState.enabled = toggle.checked;
-                await saveAutoBackupConfig();
-                if (autoBackupState.enabled) {
-                    await requestPersistentStorage();
-                    scheduleAutoBackup(true);
-                }
-            });
-        }
-        downloadBtn?.addEventListener('click', async () => {
-            try {
-                const snapshot = await DB.exportSnapshot();
-                const blob = new Blob([JSON.stringify(snapshot, null, 2)], { type: 'application/json' });
-                const url = URL.createObjectURL(blob);
-                const anchor = document.createElement('a');
-                anchor.href = url;
-                anchor.download = `finance-tool-autobackup-${Date.now()}.json`;
-                anchor.click();
-                URL.revokeObjectURL(url);
-                Utils.showToast('Backup downloaded', 'success');
-            } catch (error) {
-                console.error(error);
-                Utils.showToast('Download failed', 'error');
-            }
-        });
-        linkBtn?.addEventListener('click', async () => {
-            if (!window.showSaveFilePicker) {
-                Utils.showToast('File-based backup not supported in this browser', 'warning');
-                return;
-            }
-            try {
-                const handle = await window.showSaveFilePicker({
-                    suggestedName: 'finance-tool-autobackup.json',
-                    types: [{ description: 'JSON Files', accept: { 'application/json': ['.json'] } }]
-                });
-                if (!(await ensureFileHandlePermission(handle))) {
-                    Utils.showToast('File access denied', 'error');
-                    return;
-                }
-                autoBackupState.fileHandle = handle;
-                await saveAutoBackupConfig();
-                scheduleAutoBackup(true);
-                Utils.showToast('Auto-backup file linked', 'success');
-            } catch (error) {
-                if (error?.name !== 'AbortError') {
-                    console.error(error);
-                    Utils.showToast('Unable to link file', 'error');
-                }
-            }
-        });
-        importBtn?.addEventListener('click', () => importInput?.click());
-        importInput?.addEventListener('change', async (event) => {
-            const file = event.target.files?.[0];
-            event.target.value = '';
-            if (!file) return;
-            try {
-                const text = await file.text();
-                const snapshot = JSON.parse(text);
-                await DB.importSnapshot(snapshot);
-                await loadState();
-                renderAll();
-                scheduleAutoBackup(true);
-                Utils.showToast('Backup imported', 'success');
-            } catch (error) {
-                console.error(error);
-                Utils.showToast('Import failed', 'error');
-            }
-        });
-    };
-
-    const removeLedgerEntriesForReference = async (referenceId) => {
-        if (!referenceId) return;
-        const matches = state.ledgerEntries.filter(entry => entry.description?.includes(referenceId));
-        for (const entry of matches) {
-            await DB.remove('ledgerEntries', entry.id);
-        }
-        state.ledgerEntries = state.ledgerEntries.filter(entry => !entry.description?.includes(referenceId));
-    };
-
-    const removeStockMovementsForTransaction = async (record, type) => {
-        if (!record) return;
-        const targetType = type === 'sale' ? 'sale' : type === 'purchase' ? 'purchase' : type;
-        const matches = state.stockMovements.filter(m =>
-            m.referenceId === record.id ||
-            (!m.referenceId && m.itemId === record.itemId && m.type === targetType && m.date === record.date && Math.abs(m.quantity) === Math.abs(record.quantity))
-        );
-        for (const movement of matches) {
-            await DB.remove('stockMovements', movement.id);
-        }
-        state.stockMovements = state.stockMovements.filter(m => !matches.some(match => match.id === m.id));
-    };
-
-    const removeAttachment = async (attachmentId) => {
-        if (!attachmentId) return;
-        await DB.remove('attachments', attachmentId);
-        state.attachments = state.attachments.filter(att => att.id !== attachmentId);
-    };
-
-    const adjustBankBalance = (entry, direction = 1) => {
-        if (!entry) return;
-        const bank = state.banks.find(b => b.id === entry.accountId);
-        if (!bank) return;
-        if (['deposit', 'debit', 'transfer'].includes(entry.type)) {
-            bank.balance += direction * entry.amount;
-        } else if (['withdrawal', 'credit'].includes(entry.type)) {
-            bank.balance -= direction * entry.amount;
-        }
-        DB.add('banks', bank);
-    };
-
-    const beginRecordEdit = async (module, id) => {
-        const config = moduleConfigs[module];
-        if (!config || !id) return;
-        navigate(config.route);
-        const form = document.getElementById(config.formId);
-        if (!form) return;
-        let record = null;
-        const collection = state[config.store];
-        if (Array.isArray(collection)) {
-            record = collection.find(item => item.id === id);
-        }
-        if (config.store === 'ledgerEntries' && !record) {
-            record = state.ledgerEntries.find(item => item.id === id);
-        }
-        if (!record || (config.filter && !config.filter(record))) {
-            Utils.showToast('Record not available for editing', 'error');
-            return;
-        }
-        populateFormForModule(module, record);
-        TablesUI.setSelection(config.tableId, record.id);
-        form.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    };
-
-    const bindRowSelection = () => {
-        document.addEventListener('click', async (event) => {
-            const button = event.target.closest('[data-edit-record]');
-            if (button) {
-                event.preventDefault();
-                await beginRecordEdit(button.dataset.editRecord, button.dataset.id);
-                return;
-            }
-            const row = event.target.closest('tr[data-record-id]');
-            if (row && !event.target.closest('button')) {
-                await beginRecordEdit(row.dataset.module, row.dataset.recordId);
-            }
-        });
-        document.addEventListener('keydown', async (event) => {
-            if (event.key !== 'Enter') return;
-            const row = event.target.closest('tr[data-record-id]');
-            if (row) {
-                event.preventDefault();
-                await beginRecordEdit(row.dataset.module, row.dataset.recordId);
-            }
-        });
-    };
-
-    const registerServiceWorker = async () => {
-        if ('serviceWorker' in navigator) {
-            try {
-                await navigator.serviceWorker.register('./sw.js');
-            } catch (error) {
-                console.warn('Service worker registration failed', error);
-            }
-        }
-    };
-
     const init = async () => {
         document.getElementById('year').textContent = new Date().getFullYear();
         await DB.init();
-        await loadAutoBackupConfig();
-        await maybeRestoreFromAutoBackup();
         await loadState();
         bindNavigation();
         bindForms();
         bindThemeToggle();
         bindBackupRestore();
-        bindAutoBackupControls();
-        bindRowSelection();
-        setDefaultFormDates();
-        if (autoBackupState.enabled) await requestPersistentStorage();
         renderAll();
-        registerServiceWorker();
         runInBrowserTests();
-        scheduleAutoBackup(true);
         Utils.showToast('Finance Tool ready for offline use', 'success');
     };
 
@@ -552,7 +121,6 @@ const App = (() => {
                 await DB.restore(passphrase, text);
                 await loadState();
                 renderAll();
-                scheduleAutoBackup(true);
                 Utils.showToast('Restore completed', 'success');
             } catch (error) {
                 console.error(error);
@@ -569,81 +137,42 @@ const App = (() => {
         document.getElementById('cashForm').addEventListener('submit', handleCashSubmit);
         document.getElementById('loanForm').addEventListener('submit', handleLoanSubmit);
         document.getElementById('settingsForm').addEventListener('submit', handleSettingsSubmit);
-        const recurringToggle = document.querySelector('#expenseForm input[name="recurring"]');
-        recurringToggle?.addEventListener('change', (event) => {
-            document.querySelector('.recurring-template')?.classList.toggle('hidden', !event.target.checked);
+        document.querySelector('#expenseForm input[name="recurring"]').addEventListener('change', (event) => {
+            document.querySelector('.recurring-template').classList.toggle('hidden', !event.target.checked);
         });
         document.getElementById('btnExportCsv').addEventListener('click', exportCsv);
         document.getElementById('btnPrintReport').addEventListener('click', () => window.print());
-        document.querySelectorAll('form.card').forEach(form => {
-            const submit = form.querySelector('[type="submit"]');
-            if (submit) form.dataset.defaultSubmitText = submit.textContent;
-        });
     };
 
     const handleInventorySubmit = async (event) => {
         event.preventDefault();
-        const form = event.target;
-        const formData = new FormData(form);
-        const recordId = formData.get('recordId');
-        const payload = {
+        const formData = new FormData(event.target);
+        const item = {
+            id: Utils.uuid(),
             sku: formData.get('sku'),
             name: formData.get('name'),
             category: formData.get('category'),
             cost: Utils.parseNumber(formData.get('cost')),
             openingStock: Utils.parseNumber(formData.get('stock')),
-            reorder: Utils.parseNumber(formData.get('reorder'))
+            reorder: Utils.parseNumber(formData.get('reorder')),
+            openingDate: Utils.toISODate()
         };
-        if (recordId) {
-            const existing = state.items.find(item => item.id === recordId);
-            if (!existing) {
-                Utils.showToast('Item not found', 'error');
-                return;
-            }
-            const updated = { ...existing, ...payload };
-            await DB.add('items', updated);
-            upsertStateRecord('items', updated);
-            const openingMovement = state.stockMovements.find(m => (m.referenceId === updated.id) || (m.itemId === updated.id && m.type === 'opening'));
-            if (openingMovement) {
-                openingMovement.quantity = updated.openingStock;
-                openingMovement.cost = updated.cost;
-                await DB.add('stockMovements', openingMovement);
-            } else {
-                await addStockMovement({
-                    itemId: updated.id,
-                    type: 'opening',
-                    quantity: updated.openingStock,
-                    cost: updated.cost,
-                    date: Utils.toISODate(),
-                    referenceId: updated.id
-                });
-            }
-            Utils.showToast('Item updated', 'success');
-        } else {
-            const item = {
-                id: Utils.uuid(),
-                ...payload,
-                openingDate: Utils.toISODate()
-            };
-            await DB.add('items', item);
-            state.items.push(item);
-            await addStockMovement({
-                itemId: item.id,
-                type: 'opening',
-                quantity: item.openingStock,
-                cost: item.cost,
-                date: item.openingDate,
-                referenceId: item.id
-            });
-            Utils.showToast('Item saved', 'success');
-        }
+        await DB.add('items', item);
+        state.items.push(item);
+        await addStockMovement({
+            itemId: item.id,
+            type: 'opening',
+            quantity: item.openingStock,
+            cost: item.cost,
+            date: Utils.toISODate()
+        });
         renderAll();
-        finishFormSubmission('inventory');
-        scheduleAutoBackup();
+        event.target.reset();
+        Utils.showToast('Item saved', 'success');
     };
 
     const addStockMovement = async (movement) => {
-        const record = { id: Utils.uuid(), referenceId: movement.referenceId || null, ...movement };
+        const record = { id: Utils.uuid(), ...movement };
         await DB.add('stockMovements', record);
         state.stockMovements.push(record);
         if (movement.type === 'purchase' || movement.type === 'opening') {
@@ -666,7 +195,6 @@ const App = (() => {
         event.preventDefault();
         const form = event.target;
         const formData = new FormData(form);
-        const recordId = formData.get('recordId');
         const isSale = type === 'sale';
         const quantity = Utils.parseNumber(formData.get('quantity'));
         if (quantity <= 0) {
@@ -690,51 +218,38 @@ const App = (() => {
         }
         const balance = amount - payment;
         const item = state.items.find(i => i.id === itemId);
-        const storeName = isSale ? 'sales' : 'purchases';
-        const existing = recordId ? state[storeName].find(entry => entry.id === recordId) : null;
-        const date = formData.get('date') || existing?.date || Utils.toISODate();
-        const record = existing ? { ...existing } : { id: recordId || Utils.uuid() };
-        record.itemId = itemId;
-        record.partyId = formData.get('party');
-        record.quantity = quantity;
-        record.rate = rate;
-        record.total = amount;
-        record.dueDate = formData.get('dueDate') || null;
-        record.date = date;
-        record.balance = balance;
-        if (isSale) {
-            record.received = payment;
-            delete record.paid;
-        } else {
-            record.paid = payment;
-            delete record.received;
-        }
-        let attachmentId = existing?.attachmentId || null;
+        const record = {
+            id: Utils.uuid(),
+            itemId,
+            partyId: formData.get('party'),
+            quantity,
+            rate,
+            total: amount,
+            paid: isSale ? undefined : payment,
+            received: isSale ? payment : undefined,
+            balance,
+            dueDate: formData.get('dueDate') || null,
+            date: Utils.toISODate(),
+            attachmentId: null
+        };
         const attachment = formData.get('attachment');
         if (attachment && attachment.size) {
-            if (attachmentId) await removeAttachment(attachmentId);
-            attachmentId = await saveAttachment(attachment, type, record.id);
+            record.attachmentId = await saveAttachment(attachment, type, record.id);
         }
-        record.attachmentId = attachmentId;
+        const storeName = isSale ? 'sales' : 'purchases';
         await DB.add(storeName, record);
-        upsertStateRecord(storeName, record);
-        if (existing) {
-            await removeStockMovementsForTransaction(existing, type);
-            await removeLedgerEntriesForReference(record.id);
-        }
+        state[storeName].push(record);
         await addStockMovement({
             itemId,
             type: isSale ? 'sale' : 'purchase',
             quantity: isSale ? -quantity : quantity,
             cost: isSale ? (item?.cost || rate) : rate,
-            date: record.date,
-            referenceId: record.id
+            date: record.date
         });
         await registerLedgerEntries(record, type);
         renderAll();
-        finishFormSubmission(isSale ? 'sale' : 'purchase');
-        scheduleAutoBackup();
-        Utils.showToast(`${isSale ? 'Sale' : 'Purchase'} ${existing ? 'updated' : 'recorded'}`, 'success');
+        form.reset();
+        Utils.showToast(`${isSale ? 'Sale' : 'Purchase'} recorded`, 'success');
     };
 
     const registerLedgerEntries = async (record, type) => {
@@ -762,31 +277,29 @@ const App = (() => {
 
     const handleExpenseSubmit = async (event) => {
         event.preventDefault();
-        const form = event.target;
-        const formData = new FormData(form);
-        const recordId = formData.get('recordId');
+        const formData = new FormData(event.target);
         const amount = Utils.parseNumber(formData.get('amount'));
-        const existing = recordId ? state.expenses.find(expense => expense.id === recordId) : null;
-        const record = existing ? { ...existing } : { id: recordId || Utils.uuid() };
-        record.category = formData.get('category');
-        record.amount = amount;
-        record.date = formData.get('date') || existing?.date || Utils.toISODate();
-        record.partyId = formData.get('party') || null;
-        record.recurring = formData.get('recurring') === 'on';
-        record.frequency = record.recurring ? (formData.get('frequency') || existing?.frequency || 'monthly') : null;
+        const record = {
+            id: Utils.uuid(),
+            category: formData.get('category'),
+            amount,
+            date: formData.get('date') || Utils.toISODate(),
+            partyId: formData.get('party') || null,
+            recurring: formData.get('recurring') === 'on',
+            frequency: formData.get('frequency') || null,
+            attachmentId: null
+        };
         const attachment = formData.get('attachment');
         if (attachment && attachment.size) {
-            if (record.attachmentId) await removeAttachment(record.attachmentId);
             record.attachmentId = await saveAttachment(attachment, 'expense', record.id);
         }
         await DB.add('expenses', record);
-        upsertStateRecord('expenses', record);
-        await removeLedgerEntriesForReference(record.id);
+        state.expenses.push(record);
         await registerExpenseLedger(record);
+        event.target.reset();
+        document.querySelector('.recurring-template').classList.add('hidden');
         renderAll();
-        finishFormSubmission('expense');
-        scheduleAutoBackup();
-        Utils.showToast(existing ? 'Expense updated' : 'Expense recorded', 'success');
+        Utils.showToast('Expense recorded', 'success');
     };
 
     const registerExpenseLedger = async (record) => {
@@ -802,54 +315,42 @@ const App = (() => {
 
     const handleCashSubmit = async (event) => {
         event.preventDefault();
-        const form = event.target;
-        const formData = new FormData(form);
-        const recordId = formData.get('recordId');
+        const formData = new FormData(event.target);
         const amount = Utils.parseNumber(formData.get('amount'));
-        const existing = recordId ? state.ledgerEntries.find(entry => entry.id === recordId) : null;
-        const record = existing ? { ...existing } : { id: recordId || Utils.uuid() };
-        record.accountId = formData.get('bank');
-        record.type = formData.get('type');
-        record.amount = amount;
-        record.date = formData.get('date') || existing?.date || Utils.toISODate();
-        record.description = formData.get('description');
+        const record = {
+            id: Utils.uuid(),
+            accountId: formData.get('bank'),
+            type: formData.get('type'),
+            amount,
+            date: formData.get('date') || Utils.toISODate(),
+            description: formData.get('description')
+        };
         await DB.add('ledgerEntries', record);
-        upsertStateRecord('ledgerEntries', record);
-        if (existing) {
-            adjustBankBalance(existing, -1);
-        }
-        adjustBankBalance(record, 1);
+        state.ledgerEntries.push(record);
+        updateBankBalance(record);
         renderAll();
-        finishFormSubmission('cash');
-        scheduleAutoBackup();
-        Utils.showToast(existing ? 'Ledger entry updated' : 'Ledger entry added', 'success');
+        event.target.reset();
+        Utils.showToast('Ledger entry added', 'success');
     };
 
     const handleLoanSubmit = async (event) => {
         event.preventDefault();
-        const form = event.target;
-        const formData = new FormData(form);
-        const recordId = formData.get('recordId');
+        const formData = new FormData(event.target);
         const amount = Utils.parseNumber(formData.get('amount'));
-        const typeSelection = formData.get('type');
-        const accountId = typeSelection === 'loan' ? 'loans' : 'capital';
-        const partyId = formData.get('party');
-        const partyName = state.parties.find(p => p.id === partyId)?.name || partyId;
-        const existing = recordId ? state.ledgerEntries.find(entry => entry.id === recordId) : null;
-        const record = existing ? { ...existing } : { id: recordId || Utils.uuid() };
-        record.accountId = accountId;
-        record.type = 'credit';
-        record.amount = amount;
-        record.date = formData.get('date') || existing?.date || Utils.toISODate();
-        record.description = `${typeSelection} entry for ${partyName}`;
-        record.partyId = partyId;
-        record.interest = Utils.parseNumber(formData.get('interest'));
+        const type = formData.get('type');
+        const record = {
+            id: Utils.uuid(),
+            accountId: type === 'loan' ? 'loans' : 'capital',
+            type: 'credit',
+            amount,
+            date: formData.get('date') || Utils.toISODate(),
+            description: `${type} entry for ${formData.get('party')}`
+        };
         await DB.add('ledgerEntries', record);
-        upsertStateRecord('ledgerEntries', record);
+        state.ledgerEntries.push(record);
         renderAll();
-        finishFormSubmission('loan');
-        scheduleAutoBackup();
-        Utils.showToast(existing ? 'Loan/capital entry updated' : 'Loan/capital entry saved', 'success');
+        event.target.reset();
+        Utils.showToast('Loan/capital entry saved', 'success');
     };
 
     const handleSettingsSubmit = (event) => {
@@ -862,8 +363,15 @@ const App = (() => {
             offline: formData.get('offline') === 'on'
         };
         renderAll();
-        scheduleAutoBackup();
         Utils.showToast('Settings updated', 'success');
+    };
+
+    const updateBankBalance = (entry) => {
+        const bank = state.banks.find(b => b.id === entry.accountId);
+        if (!bank) return;
+        if (entry.type === 'deposit') bank.balance += entry.amount;
+        if (entry.type === 'withdrawal') bank.balance -= entry.amount;
+        DB.add('banks', bank);
     };
 
     const saveAttachment = async (file, module, linkedId) => {
