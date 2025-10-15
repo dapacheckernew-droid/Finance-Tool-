@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Finance Tool Dashboard</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="preload" href="styles.css" as="style">
+    <link rel="icon" href="icons/app-icon.svg" type="image/svg+xml">
+</head>
+<body>
+    <header class="app-header">
+        <div class="branding">
+            <h1>Finance Tool</h1>
+            <p class="tagline">Offline-first accounting cockpit</p>
+        </div>
+        <div class="theme-toggle">
+            <label for="themeSwitch">🌞</label>
+            <input type="checkbox" id="themeSwitch" aria-label="Toggle light/dark theme">
+            <label for="themeSwitch">🌜</label>
+        </div>
+        <div class="header-actions">
+            <button id="btnBackup" class="btn">Backup</button>
+            <button id="btnRestore" class="btn secondary">Restore</button>
+            <input type="file" id="restoreFile" accept="application/json" hidden>
+        </div>
+    </header>
+
+    <nav class="app-nav" aria-label="Primary">
+        <button class="nav-link" data-route="dashboard">Dashboard</button>
+        <button class="nav-link" data-route="inventory">Inventory</button>
+        <button class="nav-link" data-route="purchases">Purchases</button>
+        <button class="nav-link" data-route="sales">Sales</button>
+        <button class="nav-link" data-route="expenses">Expenses</button>
+        <button class="nav-link" data-route="cashbank">Cash &amp; Bank</button>
+        <button class="nav-link" data-route="loans">Loans</button>
+        <button class="nav-link" data-route="receivables">Receivables</button>
+        <button class="nav-link" data-route="payables">Payables</button>
+        <button class="nav-link" data-route="reports">Reports</button>
+        <button class="nav-link" data-route="settings">Settings</button>
+        <button class="nav-link" data-route="attachments">Attachments</button>
+    </nav>
+
+    <main id="appContent">
+        <section id="dashboard" class="route active" aria-labelledby="dashboardHeading">
+            <h2 id="dashboardHeading">Dashboard</h2>
+            <div class="kpi-grid" id="dashboardKPIs"></div>
+            <div class="alert-grid" id="dashboardAlerts"></div>
+            <div class="chart-grid">
+                <canvas id="salesChart" width="300" height="160" role="img" aria-label="Sales trend"></canvas>
+                <canvas id="cashFlowChart" width="300" height="160" role="img" aria-label="Cash flow"></canvas>
+                <canvas id="inventoryChart" width="300" height="160" role="img" aria-label="Inventory valuation"></canvas>
+            </div>
+            <section class="attachment-preview" aria-label="Recent attachments">
+                <h3>Recent Attachments</h3>
+                <div id="attachmentPreview"></div>
+            </section>
+        </section>
+
+        <section id="inventory" class="route" aria-labelledby="inventoryHeading">
+            <h2 id="inventoryHeading">Inventory</h2>
+            <div class="section-grid">
+                <form id="inventoryForm" class="card">
+                    <h3>Add / Update Item</h3>
+                    <label>Item Name<input type="text" name="name" required></label>
+                    <label>SKU<input type="text" name="sku" required></label>
+                    <label>Category<input type="text" name="category"></label>
+                    <label>Unit Cost<input type="number" name="cost" min="0" step="0.01" required></label>
+                    <label>Opening Stock<input type="number" name="stock" min="0" step="0.01" required></label>
+                    <label>Reorder Level<input type="number" name="reorder" min="0" step="0.01"></label>
+                    <button class="btn" type="submit">Save Item</button>
+                </form>
+                <div class="card table-card">
+                    <div class="table-controls">
+                        <input type="search" id="inventorySearch" placeholder="Search items">
+                    </div>
+                    <div class="table-wrapper">
+                        <table id="inventoryTable" aria-describedby="inventoryHeading">
+                            <thead>
+                                <tr>
+                                    <th>SKU</th>
+                                    <th>Name</th>
+                                    <th>Category</th>
+                                    <th>Stock</th>
+                                    <th>Value</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                    <div class="pagination" data-table="inventoryTable"></div>
+                </div>
+            </div>
+        </section>
+
+        <section id="purchases" class="route" aria-labelledby="purchaseHeading">
+            <h2 id="purchaseHeading">Purchases</h2>
+            <div class="section-grid">
+                <form id="purchaseForm" class="card">
+                    <h3>New Purchase</h3>
+                    <label>Supplier<select name="party" required></select></label>
+                    <label>Item<select name="item" required></select></label>
+                    <label>Quantity<input type="number" name="quantity" min="0" step="0.01" required></label>
+                    <label>Rate<input type="number" name="rate" min="0" step="0.01" required></label>
+                    <label>Payment<input type="number" name="payment" min="0" step="0.01"></label>
+                    <label>Due Date<input type="date" name="dueDate"></label>
+                    <label>Attachment<input type="file" name="attachment" accept="image/*,application/pdf"></label>
+                    <button class="btn" type="submit">Record Purchase</button>
+                </form>
+                <div class="card table-card">
+                    <div class="table-controls">
+                        <input type="search" id="purchaseSearch" placeholder="Search purchases">
+                    </div>
+                    <div class="table-wrapper">
+                        <table id="purchaseTable">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Supplier</th>
+                                    <th>Item</th>
+                                    <th>Qty</th>
+                                    <th>Total</th>
+                                    <th>Paid</th>
+                                    <th>Balance</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                    <div class="pagination" data-table="purchaseTable"></div>
+                </div>
+            </div>
+        </section>
+
+        <section id="sales" class="route" aria-labelledby="salesHeading">
+            <h2 id="salesHeading">Sales</h2>
+            <div class="section-grid">
+                <form id="salesForm" class="card">
+                    <h3>New Sale</h3>
+                    <label>Customer<select name="party" required></select></label>
+                    <label>Item<select name="item" required></select></label>
+                    <label>Quantity<input type="number" name="quantity" min="0" step="0.01" required></label>
+                    <label>Rate<input type="number" name="rate" min="0" step="0.01" required></label>
+                    <label>Payment<input type="number" name="payment" min="0" step="0.01"></label>
+                    <label>Due Date<input type="date" name="dueDate"></label>
+                    <label>Attachment<input type="file" name="attachment" accept="image/*,application/pdf"></label>
+                    <button class="btn" type="submit">Record Sale</button>
+                </form>
+                <div class="card table-card">
+                    <div class="table-controls">
+                        <input type="search" id="salesSearch" placeholder="Search sales">
+                    </div>
+                    <div class="table-wrapper">
+                        <table id="salesTable">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Customer</th>
+                                    <th>Item</th>
+                                    <th>Qty</th>
+                                    <th>Total</th>
+                                    <th>Received</th>
+                                    <th>Balance</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                    <div class="pagination" data-table="salesTable"></div>
+                </div>
+            </div>
+        </section>
+
+        <section id="expenses" class="route" aria-labelledby="expensesHeading">
+            <h2 id="expensesHeading">Expenses</h2>
+            <div class="section-grid">
+                <form id="expenseForm" class="card">
+                    <h3>Record Expense</h3>
+                    <label>Vendor<select name="party"></select></label>
+                    <label>Category<input type="text" name="category" required></label>
+                    <label>Amount<input type="number" name="amount" min="0" step="0.01" required></label>
+                    <label>Date<input type="date" name="date" required></label>
+                    <label>Is Recurring?<input type="checkbox" name="recurring"></label>
+                    <label class="recurring-template hidden">Frequency<select name="frequency">
+                        <option value="monthly">Monthly</option>
+                        <option value="quarterly">Quarterly</option>
+                        <option value="yearly">Yearly</option>
+                    </select></label>
+                    <label>Attachment<input type="file" name="attachment" accept="image/*,application/pdf"></label>
+                    <button class="btn" type="submit">Record Expense</button>
+                </form>
+                <div class="card table-card">
+                    <div class="table-controls">
+                        <input type="search" id="expenseSearch" placeholder="Search expenses">
+                    </div>
+                    <div class="table-wrapper">
+                        <table id="expenseTable">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Category</th>
+                                    <th>Amount</th>
+                                    <th>Vendor</th>
+                                    <th>Recurring</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                    <div class="pagination" data-table="expenseTable"></div>
+                </div>
+            </div>
+        </section>
+
+        <section id="cashbank" class="route" aria-labelledby="cashHeading">
+            <h2 id="cashHeading">Cash &amp; Bank</h2>
+            <div class="section-grid">
+                <form id="cashForm" class="card">
+                    <h3>Ledger Entry</h3>
+                    <label>Account<select name="bank" required></select></label>
+                    <label>Type<select name="type">
+                        <option value="deposit">Deposit</option>
+                        <option value="withdrawal">Withdrawal</option>
+                        <option value="transfer">Transfer</option>
+                    </select></label>
+                    <label>Amount<input type="number" name="amount" min="0" step="0.01" required></label>
+                    <label>Date<input type="date" name="date" required></label>
+                    <label>Description<textarea name="description" rows="2"></textarea></label>
+                    <button class="btn" type="submit">Record Entry</button>
+                </form>
+                <div class="card table-card">
+                    <div class="table-controls">
+                        <input type="search" id="cashSearch" placeholder="Search ledger">
+                    </div>
+                    <div class="table-wrapper">
+                        <table id="cashTable">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Account</th>
+                                    <th>Type</th>
+                                    <th>Debit</th>
+                                    <th>Credit</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                    <div class="pagination" data-table="cashTable"></div>
+                </div>
+            </div>
+        </section>
+
+        <section id="loans" class="route" aria-labelledby="loanHeading">
+            <h2 id="loanHeading">Loans &amp; Capital</h2>
+            <div class="section-grid">
+                <form id="loanForm" class="card">
+                    <h3>Loan / Capital Entry</h3>
+                    <label>Party<select name="party" required></select></label>
+                    <label>Type<select name="type">
+                        <option value="loan">Loan</option>
+                        <option value="capital">Owner Capital</option>
+                    </select></label>
+                    <label>Amount<input type="number" name="amount" min="0" step="0.01" required></label>
+                    <label>Date<input type="date" name="date" required></label>
+                    <label>Interest Rate<input type="number" name="interest" min="0" step="0.01"></label>
+                    <button class="btn" type="submit">Save</button>
+                </form>
+                <div class="card table-card">
+                    <div class="table-controls">
+                        <input type="search" id="loanSearch" placeholder="Search loans">
+                    </div>
+                    <div class="table-wrapper">
+                        <table id="loanTable">
+                            <thead>
+                                <tr>
+                                    <th>Date</th>
+                                    <th>Party</th>
+                                    <th>Type</th>
+                                    <th>Amount</th>
+                                    <th>Balance</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                    <div class="pagination" data-table="loanTable"></div>
+                </div>
+            </div>
+        </section>
+
+        <section id="receivables" class="route" aria-labelledby="receivableHeading">
+            <h2 id="receivableHeading">Receivables</h2>
+            <div class="card table-card">
+                <div class="table-controls">
+                    <input type="search" id="receivableSearch" placeholder="Search receivables">
+                </div>
+                <div class="table-wrapper">
+                    <table id="receivableTable">
+                        <thead>
+                            <tr>
+                                <th>Customer</th>
+                                <th>Invoice</th>
+                                <th>Due Date</th>
+                                <th>Balance</th>
+                                <th>Aging</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+                <div class="pagination" data-table="receivableTable"></div>
+            </div>
+        </section>
+
+        <section id="payables" class="route" aria-labelledby="payableHeading">
+            <h2 id="payableHeading">Payables</h2>
+            <div class="card table-card">
+                <div class="table-controls">
+                    <input type="search" id="payableSearch" placeholder="Search payables">
+                </div>
+                <div class="table-wrapper">
+                    <table id="payableTable">
+                        <thead>
+                            <tr>
+                                <th>Supplier</th>
+                                <th>Bill</th>
+                                <th>Due Date</th>
+                                <th>Balance</th>
+                                <th>Aging</th>
+                            </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+                <div class="pagination" data-table="payableTable"></div>
+            </div>
+        </section>
+
+        <section id="reports" class="route" aria-labelledby="reportsHeading">
+            <h2 id="reportsHeading">Reports</h2>
+            <div class="report-actions">
+                <button class="btn" data-report="pl">Profit &amp; Loss</button>
+                <button class="btn" data-report="cashflow">Cash Flow</button>
+                <button class="btn" data-report="inventory">Inventory Valuation</button>
+                <button class="btn" data-report="sales">Sales Analysis</button>
+                <button class="btn" data-report="expenses">Expense Analysis</button>
+                <button class="btn" data-report="tax">Tax Summary</button>
+                <button class="btn secondary" id="btnExportCsv">Export CSV</button>
+                <button class="btn secondary" id="btnPrintReport">Print / PDF</button>
+            </div>
+            <article id="reportOutput" class="card"></article>
+        </section>
+
+        <section id="settings" class="route" aria-labelledby="settingsHeading">
+            <h2 id="settingsHeading">Settings</h2>
+            <form id="settingsForm" class="card">
+                <label>Organization Name<input type="text" name="orgName" placeholder="My Company"></label>
+                <label>Financial Year Start<input type="month" name="fiscalStart"></label>
+                <label>Currency<input type="text" name="currency" value="USD"></label>
+                <label>Enable Offline Cache<input type="checkbox" name="offline" checked></label>
+                <button class="btn" type="submit">Save Settings</button>
+            </form>
+        </section>
+
+        <section id="attachments" class="route" aria-labelledby="attachmentsHeading">
+            <h2 id="attachmentsHeading">Attachments</h2>
+            <div class="card table-card">
+                <div class="table-controls">
+                    <input type="search" id="attachmentSearch" placeholder="Search attachments">
+                </div>
+                <div id="attachmentsGrid" class="attachments-grid"></div>
+            </div>
+        </section>
+    </main>
+
+    <footer class="app-footer">
+        <p>&copy; <span id="year"></span> Finance Tool. All rights reserved.</p>
+    </footer>
+
+    <div id="toastContainer" role="status" aria-live="polite"></div>
+
+    <script src="utils.js" defer></script>
+    <script src="db.js" defer></script>
+    <script src="reports.js" defer></script>
+    <script src="ui/dashboard.js" defer></script>
+    <script src="ui/tables.js" defer></script>
+    <script src="ui/transactions.js" defer></script>
+    <script src="ui/ledger.js" defer></script>
+    <script src="ui/attachments.js" defer></script>
+    <script src="app.js" defer></script>
+</body>
+</html>
